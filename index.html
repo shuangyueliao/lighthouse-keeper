@@ -1,0 +1,1077 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="description" content="Lighthouse Keeper — swing the lighthouse beam, reveal hidden reefs with prisms and lenses, guide every ship home. Free HTML5 puzzle.">
+<title>Lighthouse Keeper — Light-Beam Harbor Puzzle</title>
+<script>
+// 平台 SDK 按域名条件加载（独立运行时完全不加载，游戏行为不变）
+(function () {
+  var host = location.hostname || "";
+  try {
+    if (host.indexOf("crazygames") !== -1) {
+      var s1 = document.createElement("script");
+      s1.src = "https://sdk.crazygames.com/crazygames-sdk-v3.js";
+      s1.onload = function () {
+        if (window.CrazyGames && window.CrazyGames.SDK) {
+          window.CrazyGames.SDK.init().then(function () {
+            try { window.CrazyGames.SDK.game.loadingStart(); } catch (e) {}
+            window.addEventListener("load", function () { try { window.CrazyGames.SDK.game.loadingStop(); } catch (e) {} });
+          }).catch(function () {});
+        }
+      };
+      document.head.appendChild(s1);
+      window.__portal = "crazygames";
+    } else if (host.indexOf("gamedistribution") !== -1 || host.indexOf("html5.gamedistribution.com") !== -1 || host.indexOf("gd.games") !== -1) {
+      var s2 = document.createElement("script");
+      s2.src = "https://sdk.gamedistribution.com/v2/main.min.js";
+      document.head.appendChild(s2);
+      window.__portal = "gamedistribution";
+    }
+  } catch (e) {}
+})();
+</script>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  html,body { height:100%; overflow:hidden; background:#060a18; font-family:-apple-system,"Segoe UI","Helvetica Neue",sans-serif; }
+  #wrap { height:100%; display:flex; flex-direction:column; align-items:center; justify-content:center; }
+  #hud { width:100%; max-width:520px; display:flex; justify-content:space-between; align-items:center; padding:8px 14px 4px; color:#e8ecf8; }
+  .stat { text-align:center; }
+  .stat .label { font-size:10px; color:#7f8cb0; letter-spacing:1px; }
+  .stat .val { font-size:15px; font-weight:800; }
+  #title { font-size:13px; font-weight:800; color:#ffd76a; letter-spacing:2px; }
+  .hbtn { background:#141a30; color:#aab6dd; border:1px solid #2a3352; border-radius:8px; font-size:10px; font-weight:700; letter-spacing:1px; padding:6px 9px; cursor:pointer; }
+  .hbtn:active { transform:scale(.96); }
+  canvas { display:block; border-radius:14px; touch-action:none; }
+  #overlay { position:absolute; inset:0; display:none; align-items:center; justify-content:center; background:rgba(4,7,18,.82); z-index:5; }
+  #panel { background:#0e1526; border:1px solid #26304e; border-radius:18px; padding:22px 26px; text-align:center; color:#fff; max-width:420px; max-height:92%; overflow-y:auto; }
+  #panel h1 { font-size:22px; letter-spacing:3px; color:#ffd76a; margin-bottom:4px; }
+  #panel h2 { font-size:20px; margin-bottom:6px; }
+  #panel .tag { color:#8fd0ff; font-size:12px; margin-bottom:10px; }
+  #panel p { color:#9aa6c8; font-size:12px; line-height:1.55; margin-bottom:10px; }
+  #panel p.dim { color:#69759a; font-size:11px; }
+  #panel .final { font-size:34px; font-weight:900; color:#ffd76a; margin:2px 0 6px; }
+  #grid { display:grid; grid-template-columns:repeat(5,1fr); gap:7px; margin:12px 0; }
+  #grid .lv { position:relative; background:#16203c; color:#e8ecf8; border:1px solid #2c3a63; border-radius:10px; padding:10px 0; font-size:14px; font-weight:800; cursor:pointer; }
+  #grid .lv:hover { background:#1d2b52; }
+  #grid .lv.lock { opacity:.35; cursor:default; }
+  #grid .lv span { position:absolute; right:4px; bottom:2px; font-size:8px; font-weight:600; color:#ffd76a; }
+  #panel button.main { background:linear-gradient(135deg,#3f6cff,#8a5bff); color:#fff; border:none; border-radius:11px; padding:11px 30px; font-size:15px; font-weight:800; cursor:pointer; margin:4px; }
+  #panel button.side { background:#16203c; color:#aab6dd; border:1px solid #2c3a63; border-radius:11px; padding:11px 18px; font-size:13px; font-weight:700; cursor:pointer; margin:4px; }
+  #panel button:active { transform:scale(.97); }
+  #footer { color:#4a5678; font-size:11px; padding:6px; }
+</style>
+</head>
+<body>
+<div id="wrap">
+  <div id="hud">
+    <div class="stat"><div class="label">NIGHT</div><div class="val" id="lvl">LV 1</div></div>
+    <div id="title">LIGHTHOUSE KEEPER</div>
+    <div class="stat"><div class="label">CLOCK</div><div class="val" id="beat">BEAT 1/19</div></div>
+    <button class="hbtn" id="menuBtn">MAP</button>
+    <button class="hbtn" id="retryBtn">RETRY</button>
+    <button class="hbtn" id="muteBtn">SOUND ON</button>
+  </div>
+  <div style="position:relative">
+    <canvas id="game"></canvas>
+    <div id="overlay"><div id="panel"></div></div>
+  </div>
+  <div id="footer">Lighthouse Keeper — a free harbor light puzzle. No ads, no tracking.</div>
+</div>
+<script>
+"use strict";
+// ============================================================
+// Lighthouse Keeper — core simulation (pure logic, no DOM)
+// 原创光路解谜核心：光束传播 / 拍时序 / 船只航道 / 暗礁显形
+// ============================================================
+var LK = (function () {
+  "use strict";
+  var COLS = 13, ROWS = 9, CELL = 38;
+  var BEAT = 3.0;            // 每拍 3 秒
+  var BASE_RANGE = 7.5;      // 基础光束射程（格）
+  var STEP = 0.15;           // 光线步进（格）
+  var RAD1 = 0.62;           // 强度1 显形半径
+  var REVEAL_NEED = 1.0;     // 累计受光 1 秒显形
+  var DECAY = 0.7;           // 未受光时曝光衰减
+  var WINDOW = 5.0;          // 显形保持窗口（秒）
+  var SINK_D = 0.45;         // 撞礁判定距离
+  var PROBE = 0.85;          // 船只前瞻距离
+  var PROBE_D = 0.65;        // 前瞻触发距离
+  var DODGE_OFF = 0.9;       // 侧移量
+
+  function deg2rad(d) { return d * Math.PI / 180; }
+  function norm(a) { a %= 360; if (a < 0) a += 360; return a; }
+  function snap15(a) { return norm(Math.round(a / 15) * 15); }
+  function dist(ax, ay, bx, by) { var dx = ax - bx, dy = ay - by; return Math.sqrt(dx * dx + dy * dy); }
+
+  // ---------- 关卡数据（25 关，参考解内联） ----------
+  // ship: {a:[c,r], b:[c,r], sp:格/拍, dv:侧避方向}  reef:{c:[[c,r]..], n:边缘擦碰}
+  var LEVELS = [
+/*00*/{ n:"First Light", beats:19, ships:[{a:[1,4],b:[12,4],sp:0.7,dv:1}],
+  reefs:[{c:[[6,4]]}], sol:[{b:4,ang:0}] },
+/*01*/{ n:"Twin Shoals", beats:20, ships:[{a:[1,4],b:[12,4],sp:0.6,dv:1}],
+  reefs:[{c:[[5,4]]},{c:[[7,4]]}], sol:[{b:3,ang:0}] },
+/*02*/{ n:"Northbound", beats:20, ships:[{a:[1,2],b:[12,2],sp:0.7,dv:1}],
+  reefs:[{c:[[7,2]]}], sol:[{b:4,ang:-15}] },
+/*03*/{ n:"Two Lanes", beats:24, ships:[{a:[1,2],b:[12,2],sp:0.7,dv:1},{a:[1,6],b:[12,6],sp:0.6,dv:-1}],
+  reefs:[{c:[[6,2]]},{c:[[7,6]]}], sol:[{b:0,ang:-15},{b:8,ang:15}] },
+/*04*/{ n:"Diagonal Run", beats:20, ships:[{a:[1,1],b:[9,9],sp:0.7,dv:1}],
+  reefs:[{c:[[5,5]]}], sol:[{b:4,ang:15}] },
+/*05*/{ n:"Cross Currents", beats:24, ships:[{a:[1,4],b:[12,4],sp:0.6,dv:1},{a:[1,2],b:[12,2],sp:0.6,dv:-1}],
+  reefs:[{c:[[6,4]]},{c:[[7,2]]}], sol:[{b:0,ang:0},{b:8,ang:-15}] },
+/*06*/{ n:"Tight Schedule", beats:24, ships:[{a:[1,4],b:[12,4],sp:0.6,dv:1},{a:[1,2],b:[12,2],sp:0.7,dv:-1},{a:[1,6],b:[12,6],sp:0.6,dv:-1}],
+  reefs:[{c:[[5,4]]},{c:[[7,2]]},{c:[[7,6]]}], sol:[{b:0,ang:0},{b:7,ang:-15},{b:8,ang:15}] },
+/*07*/{ n:"The Split", beats:24, ships:[{a:[1,4],b:[12,4],sp:0.6,dv:1},{a:[5,1],b:[5,8],sp:0.6,dv:1}],
+  reefs:[{c:[[2,4]]},{c:[[5,6]]}],
+  slots:[[3,4]], dev:["P"], sol:[{b:0,ang:0,put:[0,0]}] },
+/*08*/{ n:"Prism Watch", beats:26, ships:[{a:[1,2],b:[12,2],sp:0.6,dv:-1},{a:[5,0],b:[5,8],sp:0.6,dv:1}],
+  reefs:[{c:[[6,2]]},{c:[[5,6]]}],
+  slots:[[3,4]], dev:["P"], sol:[{b:0,ang:-15},{b:8,ang:0,put:[0,0]}] },
+/*09*/{ n:"Triple Beam", beats:26, ships:[{a:[1,2],b:[12,2],sp:0.6,dv:-1},{a:[1,6],b:[12,6],sp:0.6,dv:1},{a:[6,1],b:[6,8],sp:0.7,dv:1}],
+  reefs:[{c:[[5,2]]},{c:[[5,6]]},{c:[[6,7]]},{c:[[7,2]]}],
+  slots:[[3,4]], dev:["P"], sol:[{b:0,ang:0,put:[0,0]},{b:8,ang:-15}] },
+/*10*/{ n:"Far Water", beats:20, ships:[{a:[1,4],b:[12,4],sp:0.6,dv:1}],
+  reefs:[{c:[[9,4]]}],
+  slots:[[4,4]], dev:["L"], sol:[{b:0,ang:0},{b:9,put:[0,0]}] },
+/*11*/{ n:"Long Reach", beats:22, ships:[{a:[1,2],b:[12,2],sp:0.6,dv:1}],
+  reefs:[{c:[[9,2]]}],
+  slots:[[3,3]], dev:["L"], sol:[{b:0,ang:-15},{b:9,put:[0,0]}] },
+/*12*/{ n:"Glass Work", beats:26, ships:[{a:[1,4],b:[12,4],sp:0.6,dv:1},{a:[1,2],b:[12,2],sp:0.6,dv:-1}],
+  reefs:[{c:[[9,4]]},{c:[[6,2]]}],
+  slots:[[4,4]], dev:["L"], sol:[{b:0,ang:-15},{b:8,ang:0,put:[0,0]}] },
+/*13*/{ n:"Fog Bank", beats:22, ships:[{a:[1,3],b:[12,3],sp:0.6,dv:1}],
+  reefs:[{c:[[5,3]]}], fog:[[4,2,3,5]],
+  slots:[[3,3]], dev:["L"], sol:[{b:0,ang:-15},{b:5,put:[0,0]}] },
+/*14*/{ n:"Through the Mist", beats:26, ships:[{a:[1,4],b:[12,4],sp:0.6,dv:1}],
+  reefs:[{c:[[5,4]]},{c:[[9,4]]}], fog:[[4,3,3,3]],
+  slots:[[3,4]], dev:["L"], sol:[{b:0,ang:0},{b:6,put:[0,0]}] },
+/*15*/{ n:"Split and Reach", beats:24, ships:[{a:[1,0],b:[12,0],sp:0.6,dv:1},{a:[1,8],b:[12,8],sp:0.6,dv:-1},{a:[1,4],b:[12,4],sp:0.7,dv:1}],
+  reefs:[{c:[[7,0]]},{c:[[7,8]]},{c:[[2,4]]}],
+  slots:[[3,4]], dev:["P"], sol:[{b:0,ang:0,put:[0,0]}] },
+/*16*/{ n:"Narrow Escape", beats:19, ships:[{a:[1,4],b:[12,4],sp:0.7,dv:1}],
+  reefs:[{c:[[6,4]],n:1},{c:[[9,4]],n:1}],
+  slots:[[4,4]], dev:["L"], sol:[{b:0,ang:0,put:[0,0]}] },
+/*17*/{ n:"Reef Maze", beats:20, ships:[{a:[1,1],b:[9,9],sp:0.7,dv:1}],
+  reefs:[{c:[[3,3]]},{c:[[5,5]]},{c:[[6,6]]}], sol:[{b:0,ang:-15},{b:6,ang:15}] },
+/*18*/{ n:"Moving Targets", beats:22, ships:[{a:[1,2],b:[12,2],sp:0.75,dv:1},{a:[1,4],b:[12,4],sp:0.6,dv:1},{a:[1,6],b:[12,6],sp:0.7,dv:-1}],
+  reefs:[{c:[[6,2]]},{c:[[7,4]]},{c:[[6,6]]}], sol:[{b:0,ang:-15},{b:6,ang:15},{b:8,ang:0}] },
+/*19*/{ n:"Fog Line", beats:22, ships:[{a:[1,4],b:[12,4],sp:0.7,dv:1},{a:[1,2],b:[12,2],sp:0.6,dv:1}],
+  reefs:[{c:[[8,4]]},{c:[[7,2]]}], fog:[[6,3,2,3]],
+  slots:[[4,4]], dev:["L"], sol:[{b:0,ang:-15},{b:9,ang:0,put:[0,0]}] },
+/*20*/{ n:"Twin Prisms", beats:22, ships:[{a:[1,4],b:[12,4],sp:0.6,dv:1},{a:[1,2],b:[12,2],sp:0.6,dv:-1},{a:[1,6],b:[12,6],sp:0.6,dv:-1}],
+  reefs:[{c:[[2,4]]},{c:[[5,2]]},{c:[[7,6]]}],
+  slots:[[3,4],[5,6]], dev:["P","P"], sol:[{b:0,ang:0,put:[0,0]},{b:8,put:[1,1]}] },
+/*21*/{ n:"Storm Watch", beats:22, ships:[{a:[1,1],b:[9,9],sp:0.6,dv:1},{a:[1,9],b:[9,1],sp:0.6,dv:-1}],
+  reefs:[{c:[[5,5]]},{c:[[8,2]]}],
+  slots:[[3,3]], dev:["L"], sol:[{b:0,ang:15},{b:9,ang:-15,put:[0,0]}] },
+/*22*/{ n:"Deep Fog", beats:22, ships:[{a:[1,4],b:[12,4],sp:0.6,dv:1},{a:[1,6],b:[12,6],sp:0.6,dv:-1}],
+  reefs:[{c:[[6,4]]},{c:[[7,6]]}], fog:[[4,3,4,4]],
+  sol:[{b:0,ang:0},{b:8,ang:15}] },
+/*23*/{ n:"The Gauntlet", beats:22, ships:[{a:[1,2],b:[12,2],sp:0.7,dv:-1},{a:[1,6],b:[12,6],sp:0.6,dv:1},{a:[1,4],b:[12,4],sp:0.6,dv:1}],
+  reefs:[{c:[[5,2]]},{c:[[7,2]]},{c:[[5,6]]},{c:[[2,4]]}],
+  slots:[[3,4]], dev:["P"], sol:[{b:0,ang:0,put:[0,0]},{b:7,ang:-15}] },
+/*24*/{ n:"Last Convoy", beats:22, ships:[{a:[1,2],b:[12,2],sp:0.6,dv:-1},{a:[1,6],b:[12,6],sp:0.6,dv:1},{a:[1,4],b:[12,4],sp:0.6,dv:1}],
+  reefs:[{c:[[5,2]]},{c:[[7,2]]},{c:[[5,6]],n:1},{c:[[2,4]]}],
+  slots:[[3,4]], dev:["P"], fog:[[10,3,2,3]],
+  sol:[{b:0,ang:0,put:[0,0]},{b:8,ang:-15}] }
+  ];
+
+  // ---------- 关卡状态构建 ----------
+  function mkState(li) {
+    var L = LEVELS[li];
+    var st = {
+      li: li, L: L, t: 0, beat: 0, angle: 90, status: "play",
+      lh: L.lh || [0, 4],
+      angle0: (L.lh ? L.lh[0] : 0),
+      tray: [], solq: L.sol.slice().sort(function (a, b) { return a.b - b.b; }), soli: 0,
+      events: [], beams: []
+    };
+    var devList = L.dev || [];
+    for (var i = 0; i < devList.length; i++) st.tray.push({ id: i, type: devList[i], slot: -1 });
+    st.clusters = [];
+    (L.reefs || []).forEach(function (rf) {
+      st.clusters.push({ cells: rf.c.map(function (p) { return { c: p[0], r: p[1] }; }), narrow: !!rf.n, exposure: 0, revealed: false, win: 0, litNow: false, ripple: 0 });
+    });
+    st.ships = [];
+    (L.ships || []).forEach(function (sh) {
+      var A = sh.a, B = sh.b;
+      var dx = B[0] - A[0], dy = B[1] - A[1];
+      var len = Math.sqrt(dx * dx + dy * dy);
+      st.ships.push({
+        A: A, B: B, dir: [dx / len, dy / len], perp: [-dy / len, dx / len], len: len,
+        sp: sh.sp / BEAT, hull: 2, docked: false, dockT: 0, dead: false,
+        off: 0, offT: 0, dgi: -1, grazed: false, wake: []
+      });
+    });
+    return st;
+  }
+
+  function devAt(st, slotIdx) {
+    for (var i = 0; i < st.tray.length; i++) if (st.tray[i].slot === slotIdx) return st.tray[i];
+    return null;
+  }
+
+  function setAngle(st, deg) { st.angle = snap15(deg); }
+
+  function placeDevice(st, devIdx, slotIdx) {
+    var d = st.tray[devIdx];
+    if (!d) return;
+    if (slotIdx >= 0) {
+      var occ = devAt(st, slotIdx);
+      if (occ && occ !== d) return; // 槽位已被占
+    }
+    d.slot = slotIdx;
+  }
+
+  // ---------- 光束传播（步进射线，遇棱镜分光/透镜增程/雾衰减） ----------
+  function inFog(st, x, y) {
+    var f = st.L.fog || [];
+    for (var i = 0; i < f.length; i++) {
+      var g = f[i];
+      if (x >= g[0] && x < g[0] + g[2] && y >= g[1] && y < g[1] + g[3]) return true;
+    }
+    return false;
+  }
+  function deviceAtPoint(st, x, y, type, skipDev) {
+    var slots = st.L.slots || [];
+    for (var s = 0; s < slots.length; s++) {
+      var d = devAt(st, s);
+      if (!d || d.type !== type || d === skipDev) continue;
+      var cx = slots[s][0] + 0.5, cy = slots[s][1] + 0.5;
+      if (dist(x, y, cx, cy) < 0.35) return { dev: d, x: cx, y: cy };
+    }
+    return null;
+  }
+
+  function traceBeams(st) {
+    var beams = [];
+    var ox = st.lh[0] + 0.5, oy = st.lh[1] + 0.5;
+    var queue = [{ x: ox, y: oy, a: st.angle, rng: BASE_RANGE, inten: 1, depth: 0 }];
+    var guard = 0;
+    while (queue.length && beams.length < 6 && guard++ < 24) {
+      var bm = queue.shift();
+      var dx = Math.cos(deg2rad(bm.a)), dy = Math.sin(deg2rad(bm.a));
+      var x = bm.x, y = bm.y, d = 0, inten = bm.inten, pts = [];
+      var lensUsed = null, fogNow = false;
+      while (d < bm.rng && beams.length + queue.length < 7) {
+        x += dx * STEP; y += dy * STEP; d += STEP;
+        if (x < -0.5 || x > COLS + 0.5 || y < -0.5 || y > ROWS + 0.5) break;
+        fogNow = inFog(st, x, y);
+        // 透镜：增程提强度（每束只吃一次同一透镜）
+        var le = deviceAtPoint(st, x, y, "L", null);
+        if (le && le.dev !== lensUsed && bm.depth < 4) {
+          lensUsed = le.dev;
+          inten = Math.min(2, inten + 1);
+          bm.rng = d + BASE_RANGE + 2.0;
+        }
+        pts.push({ x: x, y: y, i: inten * (fogNow ? 0.4 : 1) });
+        // 棱镜：截断并分出 ±45° 两束
+        var pr = deviceAtPoint(st, x, y, "P", null);
+        if (pr && d > 0.3 && bm.depth < 3) {
+          queue.push({ x: pr.x, y: pr.y, a: norm(bm.a + 45), rng: BASE_RANGE, inten: inten, depth: bm.depth + 1, skip: pr.dev });
+          queue.push({ x: pr.x, y: pr.y, a: norm(bm.a - 45), rng: BASE_RANGE, inten: inten, depth: bm.depth + 1, skip: pr.dev });
+          break;
+        }
+      }
+      beams.push({ pts: pts, inten: inten, a: bm.a, ox: bm.x, oy: bm.y });
+    }
+    return beams;
+  }
+
+  // 光束扫过的显形判定：任一点落在显形半径内 → 簇受光
+  function litClusters(st, beams) {
+    var lit = [];
+    for (var ci = 0; ci < st.clusters.length; ci++) {
+      var cl = st.clusters[ci], hit = 0;
+      for (var bi = 0; bi < beams.length && !hit; bi++) {
+        var pts = beams[bi].pts;
+        for (var pi = 0; pi < pts.length; pi++) {
+          var p = pts[pi];
+          if (p.i < 0.3) continue;
+          for (var k = 0; k < cl.cells.length; k++) {
+            var cc = cl.cells[k];
+            if (dist(p.x, p.y, cc.c + 0.5, cc.r + 0.5) <= RAD1 * p.i) { hit = 1; break; }
+          }
+          if (hit) break;
+        }
+      }
+      lit.push(hit ? 1 : 0);
+    }
+    return lit;
+  }
+
+  // 船只位置（确定性与拍时序一致）：s = t * sp（格/秒 = 格/拍 ÷ 3）
+  function shipS(sh, t) { return Math.max(0, Math.min(sh.len, t * sh.sp)); }
+  function shipXY(sh, t) {
+    var s = shipS(sh, t);
+    return { x: sh.A[0] + 0.5 + sh.dir[0] * s + sh.perp[0] * sh.off,
+             y: sh.A[1] + 0.5 + sh.dir[1] * s + sh.perp[1] * sh.off, s: s };
+  }
+
+  function clusterNear(st, x, y, d) {
+    for (var ci = 0; ci < st.clusters.length; ci++) {
+      var cl = st.clusters[ci];
+      for (var k = 0; k < cl.cells.length; k++) {
+        var cc = cl.cells[k];
+        if (dist(x, y, cc.c + 0.5, cc.r + 0.5) <= d) return ci;
+      }
+    }
+    return -1;
+  }
+
+  // ---------- 主步进 ----------
+  function step(st, dt) {
+    if (st.status !== "play") return;
+    st.t += dt;
+    var nb = Math.floor(st.t / BEAT);
+    if (nb !== st.beat) st.beat = nb;
+    // 拍点应用参考操作时序（回放与玩家输入同路径；b:0 在首步即生效）
+    while (st.soli < st.solq.length && st.solq[st.soli].b <= st.beat) {
+      var e = st.solq[st.soli++];
+      if (e.ang !== undefined) setAngle(st, e.ang);
+      if (e.put) placeDevice(st, e.put[0], e.put[1]);
+      if (e.take !== undefined) placeDevice(st, e.take, -1);
+    }
+    // 光束与显形
+    st.beams = traceBeams(st);
+    var lit = litClusters(st, st.beams);
+    for (var ci = 0; ci < st.clusters.length; ci++) {
+      var cl = st.clusters[ci];
+      cl.litNow = !!lit[ci];
+      if (cl.litNow) {
+        cl.exposure = Math.min(REVEAL_NEED, cl.exposure + dt);
+        if (cl.exposure >= REVEAL_NEED) {
+          if (!cl.revealed) { st.events.push({ t: "reveal", c: cl.cells[0] }); }
+          cl.revealed = true; cl.win = WINDOW; cl.ripple = 0.9;
+        }
+      } else {
+        cl.exposure = Math.max(0, cl.exposure - DECAY * dt);
+        if (cl.revealed) {
+          cl.win -= dt;
+          if (cl.win <= 0) { cl.revealed = false; cl.exposure = 0; }
+        }
+      }
+      if (cl.ripple > 0) cl.ripple -= dt * 0.5;
+    }
+    // 船只
+    for (var si = 0; si < st.ships.length; si++) {
+      var sh = st.ships[si];
+      if (sh.docked || sh.dead) continue;
+      var pos = shipXY(sh, st.t);
+      // 前瞻避礁
+      var px = pos.x + sh.dir[0] * PROBE, py = pos.y + sh.dir[1] * PROBE;
+      var ni = clusterNear(st, px, py, PROBE_D);
+      if (ni >= 0 && st.clusters[ni].revealed && sh.dgi !== ni && (st.L.ships[si].dv || 0) !== 0) {
+        sh.dgi = ni;
+        sh.offT = DODGE_OFF * (st.L.ships[si].dv || 1);
+        if (st.clusters[ni].narrow && !sh.grazed) {
+          sh.grazed = true; sh.hull = Math.max(0, sh.hull - 1);
+          st.events.push({ t: "graze", s: si });
+        }
+        st.events.push({ t: "dodge", s: si });
+      }
+      // 驶离后回归航道
+      if (sh.dgi >= 0) {
+        var cl2 = st.clusters[sh.dgi], past = true;
+        for (var k2 = 0; k2 < cl2.cells.length; k2++) {
+          var cc2 = cl2.cells[k2];
+          var along = (cc2.c + 0.5 - (sh.A[0] + 0.5)) * sh.dir[0] + (cc2.r + 0.5 - (sh.A[1] + 0.5)) * sh.dir[1];
+          if (pos.s < along + 1.1) past = false;
+        }
+        if (past) { sh.offT = 0; sh.dgi = -2; }
+      }
+      sh.off += (sh.offT - sh.off) * Math.min(1, dt * 4);
+      pos = shipXY(sh, st.t);
+      // 撞礁判定
+      var hi = clusterNear(st, pos.x, pos.y, SINK_D);
+      if (hi >= 0) {
+        if (st.clusters[hi].revealed) {
+          if (!sh.grazed) { sh.grazed = true; sh.hull = Math.max(0, sh.hull - 1); st.events.push({ t: "graze", s: si }); }
+        } else {
+          sh.dead = true; st.status = "fail"; st.failShip = si;
+          st.events.push({ t: "sink", s: si, c: st.clusters[hi].cells[0] });
+          return;
+        }
+      }
+      // 进港
+      if (pos.s >= sh.len - 0.01) {
+        sh.docked = true; sh.dockT = st.t;
+        st.events.push({ t: "dock", s: si });
+      }
+    }
+    // 胜利判定
+    var all = true;
+    for (var si2 = 0; si2 < st.ships.length; si2++) if (!st.ships[si2].docked) all = false;
+    if (all && st.ships.length) {
+      st.status = "win";
+      var remain = Math.max(0, st.L.beats - st.beat);
+      var hull = 0;
+      for (var si3 = 0; si3 < st.ships.length; si3++) hull += st.ships[si3].hull;
+      st.score = remain * 10 + hull * 2;
+      st.events.push({ t: "win" });
+    }
+  }
+
+  // 回放参考解：从零步进直到终局或超时
+  function replay(li, maxSec) {
+    var st = mkState(li);
+    var limit = maxSec || (st.L.beats + 12) * BEAT;
+    while (st.status === "play" && st.t < limit) step(st, 1 / 30);
+    return st;
+  }
+
+  return {
+    COLS: COLS, ROWS: ROWS, CELL: CELL, BEAT: BEAT, BASE_RANGE: BASE_RANGE,
+    LEVELS: LEVELS,
+    mkState: mkState, setAngle: setAngle, placeDevice: placeDevice, devAt: devAt,
+    traceBeams: traceBeams, litClusters: litClusters, shipXY: shipXY, shipS: shipS,
+    step: step, replay: replay, snap15: snap15, inFog: inFog, clusterNear: clusterNear,
+    consts: { RAD1: RAD1, REVEAL_NEED: REVEAL_NEED, WINDOW: WINDOW, SINK_D: SINK_D, PROBE: PROBE, DODGE_OFF: DODGE_OFF }
+  };
+})();
+
+// ============================================================
+// Lighthouse Keeper — UI / rendering / input / audio
+// （依赖上方 LK 核心模块；单文件内同 <script> 作用域）
+// ============================================================
+"use strict";
+var W = 520, H = 424;
+var COLS = LK.COLS, ROWS = LK.ROWS, CELL = LK.CELL;
+var OX = (W - COLS * CELL) / 2, OY = 10;
+var TRAY_Y = OY + ROWS * CELL + 8;           // 器件托盘条
+var canvas = document.getElementById("game");
+var ctx = canvas.getContext("2d");
+var dpr = Math.min(window.devicePixelRatio || 1, 2);
+canvas.width = W * dpr; canvas.height = H * dpr;
+canvas.style.width = "100%"; canvas.style.maxWidth = W + "px";
+ctx.scale(dpr, dpr);
+
+function px(gx) { return OX + gx * CELL; }
+function py(gy) { return OY + gy * CELL; }
+
+// ---------- 进度存取（try/catch 保护） ----------
+var prog = { unlocked: 0, best: {} };
+try {
+  var raw = localStorage.getItem("lk_prog");
+  if (raw) { var p = JSON.parse(raw); if (p && typeof p.unlocked === "number") prog = p; }
+} catch (e) {}
+function saveProg() { try { localStorage.setItem("lk_prog", JSON.stringify(prog)); } catch (e) {} }
+var muted = false;
+try { muted = localStorage.getItem("lk_mute") === "1"; } catch (e) {}
+
+// ---------- 音效（WebAudio 全合成） ----------
+var actx = null, master = null, wavesOn = false;
+function ensureAudio() {
+  try {
+    if (!actx) {
+      actx = new (window.AudioContext || window.webkitAudioContext)();
+      master = actx.createGain();
+      master.gain.value = muted ? 0 : 1;
+      master.connect(actx.destination);
+    }
+    if (actx.state === "suspended") actx.resume();
+    if (!wavesOn) startWaves();
+  } catch (e) {}
+}
+function startWaves() {
+  try {
+    wavesOn = true;
+    var len = actx.sampleRate * 2;
+    var buf = actx.createBuffer(1, len, actx.sampleRate);
+    var d = buf.getChannelData(0);
+    for (var i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * 0.5;
+    var src = actx.createBufferSource(); src.buffer = buf; src.loop = true;
+    var lp = actx.createBiquadFilter(); lp.type = "lowpass"; lp.frequency.value = 320;
+    var g = actx.createGain(); g.gain.value = 0.05;
+    var lfo = actx.createOscillator(); lfo.frequency.value = 0.13;
+    var lg = actx.createGain(); lg.gain.value = 0.025;
+    lfo.connect(lg); lg.connect(g.gain);
+    src.connect(lp); lp.connect(g); g.connect(master);
+    src.start(); lfo.start();
+  } catch (e) {}
+}
+function tone(freq, dur, type, gainv, slide) {
+  try {
+    if (!actx) return;
+    var o = actx.createOscillator(), g = actx.createGain();
+    o.type = type || "sine"; o.frequency.value = freq;
+    if (slide) o.frequency.exponentialRampToValueAtTime(slide, actx.currentTime + dur);
+    g.gain.setValueAtTime(gainv || 0.1, actx.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.001, actx.currentTime + dur);
+    o.connect(g); g.connect(master);
+    o.start(); o.stop(actx.currentTime + dur);
+  } catch (e) {}
+}
+function noiseBurst(dur, gainv) {
+  try {
+    if (!actx) return;
+    var len = actx.sampleRate * dur;
+    var buf = actx.createBuffer(1, len, actx.sampleRate);
+    var d = buf.getChannelData(0);
+    for (var i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / len);
+    var s = actx.createBufferSource(); s.buffer = buf;
+    var lp = actx.createBiquadFilter(); lp.type = "lowpass"; lp.frequency.value = 200;
+    var g = actx.createGain(); g.gain.value = gainv;
+    s.connect(lp); lp.connect(g); g.connect(master); s.start();
+  } catch (e) {}
+}
+function sfx(name) {
+  if (!actx) return;
+  if (name === "click") tone(1300, 0.04, "square", 0.05);
+  else if (name === "place") { tone(500, 0.08, "triangle", 0.09); tone(750, 0.1, "triangle", 0.06); }
+  else if (name === "reveal") { tone(880, 0.22, "sine", 0.11, 1420); }
+  else if (name === "graze") tone(210, 0.16, "triangle", 0.1);
+  else if (name === "sink") { tone(85, 0.55, "sawtooth", 0.18, 40); noiseBurst(0.4, 0.22); }
+  else if (name === "dock") { tone(392, 0.4, "square", 0.05); tone(494, 0.5, "square", 0.05); }
+  else if (name === "win") { tone(523, 0.16, "triangle", 0.1); setTimeout(function(){tone(659,0.16,"triangle",0.1);},130); setTimeout(function(){tone(784,0.3,"triangle",0.12);},260); }
+  else if (name === "fail") { tone(220, 0.3, "sawtooth", 0.1, 110); setTimeout(function(){tone(165,0.4,"sawtooth",0.1,82);},250); }
+}
+
+// ---------- 平台埋点（域名守卫加载器已设 window.__portal） ----------
+function portalStart() {
+  try {
+    if (window.__portal === "crazygames" && window.CrazyGames && window.CrazyGames.SDK) window.CrazyGames.SDK.game.gameplayStart();
+  } catch (e) {}
+}
+function portalStop(happy) {
+  try {
+    if (window.__portal === "crazygames" && window.CrazyGames && window.CrazyGames.SDK) {
+      window.CrazyGames.SDK.game.gameplayStop();
+      if (happy) window.CrazyGames.SDK.game.happytime();
+    }
+  } catch (e) {}
+}
+
+// ---------- 游戏状态 ----------
+var ui = "menu";           // menu | play | end
+var st = null;             // LK 状态
+var carry = -1;            // 拖拽中的器件 idx（tray 数组下标）
+var carryPos = null;
+var flashReveal = [];      // 显形涟漪特效
+var floaters = [];         // 漂浮文字
+var shake = 0;
+var moonSpecks = [];
+for (var mi = 0; mi < 46; mi++) moonSpecks.push({ x: Math.random() * COLS, y: Math.random() * ROWS, p: Math.random() * 6.28, s: 0.5 + Math.random() * 1.4 });
+
+var elBeat = document.getElementById("beat");
+var elLvl = document.getElementById("lvl");
+var elOver = document.getElementById("overlay");
+var elPanel = document.getElementById("panel");
+var btnMute = document.getElementById("muteBtn");
+
+function startLevel(i) {
+  st = LK.mkState(i);
+  carry = -1; carryPos = null; flashReveal = []; floaters = []; shake = 0;
+  ui = "play";
+  elOver.style.display = "none";
+  elLvl.textContent = "LV " + (i + 1) + " · " + st.L.n;
+  ensureAudio(); portalStart();
+}
+function openMenu() {
+  ui = "menu"; st = null;
+  elOver.style.display = "flex";
+  buildMenu();
+}
+function endLevel() {
+  ui = "end";
+  var win = st.status === "win";
+  portalStop(win);
+  if (win) {
+    var li = st.li;
+    if (li >= prog.unlocked && li < 24) { prog.unlocked = li + 1; saveProg(); }
+    else if (li === 24 && prog.unlocked < 24) { prog.unlocked = 24; saveProg(); }
+    if (!prog.best[li] || st.score > prog.best[li]) { prog.best[li] = st.score; saveProg(); }
+    sfx("win");
+  } else sfx("fail");
+  showResult(win);
+}
+function showResult(win) {
+  var html = "";
+  if (win) {
+    var remain = Math.max(0, st.L.beats - st.beat);
+    var hull = 0; for (var i = 0; i < st.ships.length; i++) hull += st.ships[i].hull;
+    html += "<h2>All ships in port</h2><p>" + st.L.n + " cleared</p>" +
+      "<div class='final'>" + st.score + "</div>" +
+      "<p class='dim'>+" + remain * 10 + " beats left &middot; +" + hull * 2 + " hull bonus</p>" +
+      "<p class='dim'>Best: " + prog.best[st.li] + "</p>";
+    if (st.li < 24) html += "<button id='rNext' class='main'>Next Night</button>";
+    else html += "<p class='dim'>You kept every light burning. The fleet is home.</p>";
+    html += "<button id='rRetry' class='side'>Replay</button> <button id='rMenu' class='side'>Harbor Map</button>";
+  } else {
+    html += "<h2>Shipwreck</h2><p>A hull broke on a dark reef. Light the marker line before each ship passes.</p>" +
+      "<button id='rRetry' class='main'>Try Again</button> <button id='rMenu' class='side'>Harbor Map</button>";
+  }
+  elPanel.innerHTML = html;
+  elOver.style.display = "flex";
+  var bn = document.getElementById("rNext");
+  if (bn) bn.onclick = function () { startLevel(st.li + 1); };
+  document.getElementById("rRetry").onclick = function () { startLevel(st.li); };
+  document.getElementById("rMenu").onclick = function () { openMenu(); };
+}
+function buildMenu() {
+  var html = "<h1>LIGHTHOUSE KEEPER</h1>" +
+    "<p class='tag'>Night waves &middot; Keep the light on the reefs</p>" +
+    "<p class='dim'>Drag the sea to swing the beam (15&deg; steps). Reefs show only under light &mdash;<br>" +
+    "reveal each chart marker before a ship sails over it. Prism splits the beam, lens reaches far, fog dims it.</p><div id='grid'>";
+  for (var i = 0; i < 25; i++) {
+    var lock = i > prog.unlocked;
+    var best = prog.best[i];
+    html += "<button class='lv" + (lock ? " lock" : "") + "' data-i='" + i + "'" + (lock ? " disabled" : "") + ">" +
+      (lock ? "&middot;" : (i + 1)) + (best ? "<span>" + best + "</span>" : "") + "</button>";
+  }
+  html += "</div><p class='dim'>Every 3 seconds is one beat. Watch the clocks, relay the light.</p>";
+  elPanel.innerHTML = html;
+  var btns = elPanel.querySelectorAll(".lv");
+  for (var b = 0; b < btns.length; b++) {
+    btns[b].onclick = function () { startLevel(parseInt(this.getAttribute("data-i"), 10)); };
+  }
+}
+
+// ---------- 输入 ----------
+function evtPos(e) {
+  var rect = canvas.getBoundingClientRect();
+  var cx = (e.touches ? e.touches[0].clientX : e.clientX);
+  var cy = (e.touches ? e.touches[0].clientY : e.clientY);
+  return { x: (cx - rect.left) / rect.width * W, y: (cy - rect.top) / rect.height * H };
+}
+function gridAt(pt) { return { c: (pt.x - OX) / CELL, r: (pt.y - OY) / CELL }; }
+function slotAt(g) {
+  var slots = st.L.slots || [];
+  for (var s = 0; s < slots.length; s++) {
+    if (Math.hypot(g.c - (slots[s][0] + 0.5), g.r - (slots[s][1] + 0.5)) < 0.55) return s;
+  }
+  return -1;
+}
+function trayTokenAt(pt) {
+  if (!st || pt.y < TRAY_Y) return -1;
+  var n = 0; for (var i = 0; i < st.tray.length; i++) if (st.tray[i].slot < 0) n++;
+  var x = 26, tw = 54;
+  for (var j = 0; j < st.tray.length; j++) {
+    var d = st.tray[j];
+    if (d.slot >= 0) continue;
+    if (pt.x >= x - 20 && pt.x <= x + 20) return j;
+    x += tw;
+  }
+  return -1;
+}
+function onDown(e) {
+  ensureAudio();
+  if (ui !== "play") return;
+  var pt = evtPos(e);
+  var g = gridAt(pt);
+  // 拾取已放置器件或托盘器件
+  var s = slotAt(g);
+  if (s >= 0) { var d = LK.devAt(st, s); if (d) { carry = st.tray.indexOf(d); carryPos = pt; e.preventDefault(); return; } }
+  var tk = trayTokenAt(pt);
+  if (tk >= 0) { carry = tk; carryPos = pt; e.preventDefault(); return; }
+  // 旋转灯组：拖拽海面任意处，光束指向指针（15° 吸附）
+  if (g.c > -0.5 && g.c < COLS + 1 && g.r > -0.5 && g.r < ROWS + 0.5) {
+    dragBeam(pt); dragOn = true; e.preventDefault();
+  }
+}
+var dragOn = false;
+function dragBeam(pt) {
+  var ox = px(st.lh[0] + 0.5), oy = py(st.lh[1] + 0.5);
+  var ang = Math.atan2(pt.y - oy, pt.x - ox) * 180 / Math.PI;
+  var snapped = LK.snap15(ang);
+  if (snapped !== st.angle) { LK.setAngle(st, snapped); sfx("click"); }
+}
+function onMove(e) {
+  if (ui !== "play") return;
+  var pt = evtPos(e);
+  if (carry >= 0) { carryPos = pt; e.preventDefault(); return; }
+  if (dragOn) { dragBeam(pt); e.preventDefault(); }
+}
+function onUp(e) {
+  if (ui !== "play") return;
+  if (carry >= 0 && carryPos) {
+    var g = gridAt(carryPos);
+    var s = slotAt(g);
+    var dev = st.tray[carry];
+    if (s >= 0 && !LK.devAt(st, s)) { LK.placeDevice(st, carry, s); sfx("place"); }
+    else if (dev.slot < 0) LK.placeDevice(st, carry, -1); // 未命中槽位：回托盘
+    carry = -1; carryPos = null;
+  }
+  dragOn = false;
+}
+canvas.addEventListener("mousedown", onDown);
+canvas.addEventListener("mousemove", onMove);
+window.addEventListener("mouseup", onUp);
+canvas.addEventListener("touchstart", onDown, { passive: false });
+canvas.addEventListener("touchmove", onMove, { passive: false });
+canvas.addEventListener("touchend", onUp, { passive: false });
+document.addEventListener("keydown", function (e) {
+  if (ui !== "play") {
+    if (e.key === "Enter" && ui === "end") startLevel(st.li);
+    return;
+  }
+  ensureAudio();
+  if (e.key === "ArrowLeft") { LK.setAngle(st, st.angle - 15); sfx("click"); e.preventDefault(); }
+  else if (e.key === "ArrowRight") { LK.setAngle(st, st.angle + 15); sfx("click"); e.preventDefault(); }
+  else if (e.key === "m" || e.key === "M") toggleMute();
+  else if (e.key === "r" || e.key === "R") startLevel(st.li);
+});
+function toggleMute() {
+  muted = !muted;
+  try { localStorage.setItem("lk_mute", muted ? "1" : "0"); } catch (e) {}
+  if (master) master.gain.value = muted ? 0 : 1;
+  btnMute.textContent = muted ? "SOUND OFF" : "SOUND ON";
+}
+btnMute.textContent = muted ? "SOUND OFF" : "SOUND ON";
+btnMute.addEventListener("click", function () { ensureAudio(); toggleMute(); });
+document.getElementById("menuBtn").addEventListener("click", function () { openMenu(); });
+document.getElementById("retryBtn").addEventListener("click", function () { if (st) startLevel(st.li); });
+
+// ---------- 事件消费（核心 → 表现层） ----------
+function consumeEvents() {
+  for (var i = 0; i < st.events.length; i++) {
+    var ev = st.events[i];
+    if (ev.t === "reveal") {
+      sfx("reveal");
+      var c = ev.c;
+      flashReveal.push({ x: c.c + 0.5, y: c.r + 0.5, life: 1 });
+    } else if (ev.t === "sink") { sfx("sink"); shake = 0.6; }
+    else if (ev.t === "dock") sfx("dock");
+    else if (ev.t === "graze") { sfx("graze"); floaters.push({ x: st.ships[ev.s].A[0], y: st.ships[ev.s].A[1], txt: "-1 HULL", life: 1.2, ship: ev.s }); }
+  }
+  st.events.length = 0;
+}
+
+// ---------- 渲染 ----------
+function roundRect(c, x, y, w, h, rad) {
+  c.beginPath();
+  c.moveTo(x + rad, y);
+  c.arcTo(x + w, y, x + w, y + h, rad);
+  c.arcTo(x + w, y + h, x, y + h, rad);
+  c.arcTo(x, y + h, x, y, rad);
+  c.arcTo(x, y, x + w, y, rad);
+  c.closePath();
+}
+function drawSea(t) {
+  var bg = ctx.createLinearGradient(0, 0, 0, ROWS * CELL);
+  bg.addColorStop(0, "#0a1230"); bg.addColorStop(0.55, "#0c1a44"); bg.addColorStop(1, "#0a1434");
+  ctx.fillStyle = bg; ctx.fillRect(0, 0, W, ROWS * CELL + OY * 2);
+  // 月光波纹带（对角亮带 + 呼吸斑点）
+  var mx = px(st ? st.lh[0] + 0.5 : 4);
+  ctx.save();
+  ctx.globalAlpha = 0.05;
+  ctx.fillStyle = "#9fc0ff";
+  ctx.beginPath();
+  ctx.moveTo(mx - 60, 0); ctx.lineTo(mx + 30, 0); ctx.lineTo(mx + 150, ROWS * CELL); ctx.lineTo(mx + 60, ROWS * CELL);
+  ctx.closePath(); ctx.fill();
+  ctx.restore();
+  for (var i = 0; i < moonSpecks.length; i++) {
+    var s = moonSpecks[i];
+    var a = 0.05 + 0.05 * Math.sin(t * 1.3 + s.p);
+    ctx.globalAlpha = a;
+    ctx.fillStyle = "#bcd2ff";
+    ctx.fillRect(px(s.c) + Math.sin(t * 0.7 + s.p) * 4, py(s.r), s.s * 6, 1.4);
+  }
+  ctx.globalAlpha = 1;
+}
+function drawFog(t) {
+  var f = st.L.fog || [];
+  for (var i = 0; i < f.length; i++) {
+    var g = f[i];
+    var fx0 = px(g[0]), fy0 = py(g[1]), fw = g[2] * CELL, fh = g[3] * CELL;
+    ctx.save();
+    ctx.globalAlpha = 0.16;
+    ctx.fillStyle = "#aebcd0";
+    for (var k = 0; k < 7; k++) {
+      var bx = fx0 + ((k * 53 + Math.sin(t * 0.35 + k) * 12) % fw);
+      var by = fy0 + ((k * 37 + Math.cos(t * 0.28 + k * 2) * 10) % fh);
+      ctx.beginPath(); ctx.arc(bx, by, 20 + (k % 3) * 9, 0, 6.283); ctx.fill();
+    }
+    ctx.globalAlpha = 0.1;
+    roundRect(ctx, fx0, fy0, fw, fh, 14); ctx.fill();
+    ctx.restore();
+  }
+}
+function drawBeams() {
+  var beams = st.beams;
+  for (var b = 0; b < beams.length; b++) {
+    var bm = beams[b], pts = bm.pts;
+    if (pts.length < 2) continue;
+    for (var k = 1; k < pts.length; k++) {
+      var p0 = pts[k - 1], p1 = pts[k];
+      var inten = p1.i;
+      if (inten < 0.28) continue;
+      var w0 = 13 * Math.min(1.3, 0.75 + inten * 0.4) * (1 - k / pts.length * 0.6);
+      var nx = -(p1.y - p0.y), ny = (p1.x - p0.x);
+      var nl = Math.hypot(nx, ny) || 1; nx /= nl; ny /= nl;
+      var x0 = px(p0.x), y0 = py(p0.y), x1 = px(p1.x), y1 = py(p1.y);
+      var hot = inten >= 1.4;
+      ctx.globalAlpha = 0.06 + inten * 0.1;
+      ctx.fillStyle = hot ? "#fff6d8" : "#ffe9a8";
+      ctx.beginPath();
+      ctx.moveTo(x0 + nx * w0, y0 + ny * w0);
+      ctx.lineTo(x1 + nx * w0 * 0.4, y1 + ny * w0 * 0.4);
+      ctx.lineTo(x1 - nx * w0 * 0.4, y1 - ny * w0 * 0.4);
+      ctx.lineTo(x0 - nx * w0, y0 - ny * w0);
+      ctx.closePath(); ctx.fill();
+      ctx.globalAlpha = 0.5;
+      ctx.strokeStyle = hot ? "rgba(255,250,225,0.9)" : "rgba(255,236,170,0.8)";
+      ctx.lineWidth = 1.6;
+      ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.stroke();
+    }
+    // 光束端点辉光
+    var last = pts[pts.length - 1];
+    var gr = ctx.createRadialGradient(px(last.x), py(last.y), 0, px(last.x), py(last.y), 16);
+    gr.addColorStop(0, "rgba(255,240,190,0.5)"); gr.addColorStop(1, "rgba(255,240,190,0)");
+    ctx.globalAlpha = Math.min(1, last.i);
+    ctx.fillStyle = gr;
+    ctx.beginPath(); ctx.arc(px(last.x), py(last.y), 16, 0, 6.283); ctx.fill();
+    ctx.globalAlpha = 1;
+  }
+}
+function drawLighthouse(t) {
+  var lx = px(st.lh[0] + 0.5), ly = py(st.lh[1] + 0.5);
+  // 礁岛
+  ctx.fillStyle = "#1b2438";
+  ctx.beginPath(); ctx.ellipse(lx, ly + 6, 30, 40, 0, 0, 6.283); ctx.fill();
+  ctx.strokeStyle = "rgba(160,180,210,0.25)"; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.ellipse(lx, ly + 6, 30, 40, 0, 0, 6.283); ctx.stroke();
+  // 灯塔光晕
+  var glow = ctx.createRadialGradient(lx, ly, 2, lx, ly, 42);
+  glow.addColorStop(0, "rgba(255,236,170,0.5)"); glow.addColorStop(1, "rgba(255,236,170,0)");
+  ctx.fillStyle = glow;
+  ctx.beginPath(); ctx.arc(lx, ly, 42, 0, 6.283); ctx.fill();
+  // 塔身（红白条纹）
+  ctx.save();
+  ctx.translate(lx, ly);
+  for (var i = 0; i < 4; i++) {
+    ctx.fillStyle = i % 2 ? "#e8e4da" : "#c8452e";
+    ctx.fillRect(-6, 8 - i * 9, 12, 9);
+  }
+  ctx.fillStyle = "#2a2f3e";
+  ctx.fillRect(-8, -30, 16, 5);
+  ctx.fillStyle = "#ffe9a8";
+  ctx.beginPath(); ctx.arc(0, -27.5, 3.5, 0, 6.283); ctx.fill();
+  ctx.restore();
+  // 指向角标
+  var a = st.angle * Math.PI / 180;
+  ctx.strokeStyle = "rgba(255,233,168,0.85)"; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.moveTo(lx, ly - 27.5);
+  ctx.lineTo(lx + Math.cos(a) * 14, ly - 27.5 + Math.sin(a) * 14); ctx.stroke();
+}
+function drawReefs(t) {
+  for (var i = 0; i < st.clusters.length; i++) {
+    var cl = st.clusters[i];
+    for (var k = 0; k < cl.cells.length; k++) {
+      var cc = cl.cells[k];
+      var cx0 = px(cc.c + 0.5), cy0 = py(cc.r + 0.5);
+      // 海图标记线（未显形：虚线警示圈）
+      ctx.save();
+      ctx.setLineDash([3, 3]);
+      ctx.strokeStyle = cl.revealed ? "rgba(255,255,255,0.1)" : "rgba(255,120,90,0.45)";
+      ctx.lineWidth = 1.2;
+      ctx.beginPath(); ctx.arc(cx0, cy0, 9, 0, 6.283); ctx.stroke();
+      ctx.restore();
+      if (!cl.revealed && cl.exposure > 0.05) {
+        // 受光中：渐亮预览
+        ctx.globalAlpha = Math.min(0.8, cl.exposure);
+        ctx.fillStyle = "#5a6478";
+        ctx.beginPath(); ctx.arc(cx0, cy0, 7, 0, 6.283); ctx.fill();
+        ctx.globalAlpha = 1;
+      }
+      if (cl.revealed) {
+        // 显形礁石
+        ctx.fillStyle = "#4a5568";
+        ctx.strokeStyle = "rgba(190,205,230,0.7)"; ctx.lineWidth = 1.2;
+        ctx.beginPath();
+        ctx.moveTo(cx0 - 9, cy0 + 4);
+        ctx.lineTo(cx0 - 4, cy0 - 7); ctx.lineTo(cx0 + 2, cy0 - 3);
+        ctx.lineTo(cx0 + 8, cy0 - 8); ctx.lineTo(cx0 + 10, cy0 + 5);
+        ctx.closePath(); ctx.fill(); ctx.stroke();
+        if (cl.ripple > 0) {
+          ctx.globalAlpha = cl.ripple;
+          ctx.strokeStyle = "#bfe0ff"; ctx.lineWidth = 1.5;
+          ctx.beginPath(); ctx.arc(cx0, cy0, 9 + (1 - cl.ripple) * 22, 0, 6.283); ctx.stroke();
+          ctx.globalAlpha = 1;
+        }
+      }
+    }
+  }
+}
+function drawSlots() {
+  var slots = st.L.slots || [];
+  for (var s = 0; s < slots.length; s++) {
+    var cx0 = px(slots[s][0] + 0.5), cy0 = py(slots[s][1] + 0.5);
+    var d = LK.devAt(st, s);
+    if (!d) {
+      ctx.save();
+      ctx.setLineDash([4, 4]);
+      ctx.strokeStyle = "rgba(140,220,255,0.5)"; ctx.lineWidth = 1.4;
+      ctx.beginPath(); ctx.arc(cx0, cy0, 12, 0, 6.283); ctx.stroke();
+      ctx.restore();
+      ctx.strokeStyle = "rgba(140,220,255,0.5)";
+      ctx.beginPath();
+      ctx.moveTo(cx0 - 5, cy0); ctx.lineTo(cx0 + 5, cy0);
+      ctx.moveTo(cx0, cy0 - 5); ctx.lineTo(cx0, cy0 + 5);
+      ctx.stroke();
+    } else drawDevice(d.type, cx0, cy0, 1);
+  }
+}
+function drawDevice(type, x, y, scale) {
+  ctx.save(); ctx.translate(x, y); ctx.scale(scale || 1, scale || 1);
+  if (type === "P") {
+    // 棱镜：三角
+    ctx.shadowColor = "rgba(150,220,255,0.9)"; ctx.shadowBlur = 8;
+    ctx.fillStyle = "rgba(190,235,255,0.95)";
+    ctx.beginPath();
+    ctx.moveTo(0, -10); ctx.lineTo(9, 7); ctx.lineTo(-9, 7);
+    ctx.closePath(); ctx.fill();
+    ctx.shadowBlur = 0;
+    ctx.strokeStyle = "#5fb8ff"; ctx.lineWidth = 1.5; ctx.stroke();
+  } else {
+    // 透镜：椭圆环
+    ctx.shadowColor = "rgba(255,220,140,0.9)"; ctx.shadowBlur = 8;
+    ctx.strokeStyle = "rgba(255,224,150,0.95)"; ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.ellipse(0, 0, 6, 11, 0, 0, 6.283); ctx.stroke();
+    ctx.shadowBlur = 0;
+    ctx.strokeStyle = "rgba(255,240,200,0.6)"; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.ellipse(0, 0, 2.5, 8, 0, 0, 6.283); ctx.stroke();
+  }
+  ctx.restore();
+}
+function drawShips(t) {
+  var colors = ["#6ee7a0", "#7cb8ff", "#ffb27c"];
+  for (var i = 0; i < st.ships.length; i++) {
+    var sh = st.ships[i];
+    var pos = LK.shipXY(sh, st.t);
+    var sx = px(pos.x), sy = py(pos.y);
+    var ang = Math.atan2(sh.dir[1], sh.dir[0]);
+    // 尾迹
+    ctx.save();
+    ctx.translate(sx, sy); ctx.rotate(ang);
+    ctx.globalAlpha = 0.25;
+    ctx.fillStyle = "#cfe6ff";
+    ctx.beginPath();
+    ctx.moveTo(-10, 0); ctx.lineTo(-26, -5 - Math.sin(t * 3 + i) * 2); ctx.lineTo(-26, 5 + Math.sin(t * 3 + i) * 2);
+    ctx.closePath(); ctx.fill();
+    // 船体
+    ctx.globalAlpha = 1;
+    ctx.shadowColor = colors[i % 3]; ctx.shadowBlur = 8;
+    ctx.fillStyle = sh.dead ? "#5a3038" : colors[i % 3];
+    ctx.beginPath();
+    ctx.moveTo(13, 0); ctx.lineTo(-7, -8); ctx.lineTo(-11, 0); ctx.lineTo(-7, 8);
+    ctx.closePath(); ctx.fill();
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = "rgba(10,20,40,0.85)";
+    ctx.fillRect(-5, -4, 7, 8);
+    ctx.fillStyle = "#fff8d8";
+    ctx.fillRect(2, -2, 5, 4);
+    // 船灯
+    ctx.fillStyle = "#fff2b0";
+    ctx.beginPath(); ctx.arc(11, 0, 2, 0, 6.283); ctx.fill();
+    ctx.restore();
+    // 血量点
+    for (var h = 0; h < 2; h++) {
+      ctx.fillStyle = h < sh.hull ? "#7dffa8" : "rgba(255,255,255,0.15)";
+      ctx.beginPath(); ctx.arc(sx - 6 + h * 9, sy + 15, 2.6, 0, 6.283); ctx.fill();
+    }
+    if (sh.docked) {
+      ctx.fillStyle = "rgba(190,255,210,0.9)"; ctx.font = "700 11px sans-serif"; ctx.textAlign = "center";
+      ctx.fillText("IN PORT", sx, sy - 16);
+    }
+  }
+  // 港口
+  for (var j = 0; j < st.ships.length; j++) {
+    var B = st.ships[j].B;
+    var bx = px(B[0] + 0.5), by = py(B[1] + 0.5);
+    ctx.strokeStyle = "rgba(140,255,180,0.5)"; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(bx, by, 12 + Math.sin(t * 2.4 + j) * 2, -0.9, 0.9); ctx.stroke();
+    ctx.beginPath(); ctx.arc(bx, by, 12 + Math.sin(t * 2.4 + j) * 2, Math.PI - 0.9, Math.PI + 0.9); ctx.stroke();
+  }
+}
+function drawTray() {
+  ctx.fillStyle = "#0b1024";
+  ctx.fillRect(0, TRAY_Y, W, H - TRAY_Y);
+  ctx.strokeStyle = "rgba(120,150,220,0.2)";
+  ctx.beginPath(); ctx.moveTo(0, TRAY_Y); ctx.lineTo(W, TRAY_Y); ctx.stroke();
+  ctx.fillStyle = "rgba(160,180,220,0.55)";
+  ctx.font = "10px sans-serif"; ctx.textAlign = "left";
+  ctx.fillText("DEVICES — drag onto a dashed slot", 12, TRAY_Y + 14);
+  var x = 26;
+  for (var i = 0; i < st.tray.length; i++) {
+    var d = st.tray[i];
+    if (d.slot >= 0) continue;
+    if (carry === i && carryPos) continue;
+    drawDevice(d.type, x, TRAY_Y + 34, 1.1);
+    x += 54;
+  }
+  if (carry >= 0 && carryPos) drawDevice(st.tray[carry].type, carryPos.x, carryPos.y, 1.25);
+  // 拍指示
+  var bt = st.t / LK.BEAT;
+  var frac = bt - Math.floor(bt);
+  ctx.fillStyle = "rgba(150,180,255,0.9)";
+  ctx.font = "700 11px sans-serif"; ctx.textAlign = "right";
+  ctx.fillText("BEAT " + Math.min(st.beat + 1, st.L.beats) + " / " + st.L.beats, W - 14, TRAY_Y + 14);
+  ctx.fillStyle = "rgba(120,150,220,0.35)";
+  ctx.fillRect(W - 90, TRAY_Y + 22, 76, 5);
+  ctx.fillStyle = "rgba(160,190,255,0.9)";
+  ctx.fillRect(W - 90, TRAY_Y + 22, 76 * frac, 5);
+}
+function render(t) {
+  ctx.save();
+  if (shake > 0) {
+    ctx.translate((Math.random() - 0.5) * shake * 8, (Math.random() - 0.5) * shake * 8);
+    shake = Math.max(0, shake - 0.02);
+  }
+  drawSea(t);
+  if (st) {
+    drawFog(t);
+    drawSlots();
+    drawReefs(t);
+    drawBeams();
+    drawLighthouse(t);
+    drawShips(t);
+    // 显形涟漪
+    for (var i = flashReveal.length - 1; i >= 0; i--) {
+      var fr = flashReveal[i]; fr.life -= 0.03;
+      if (fr.life <= 0) { flashReveal.splice(i, 1); continue; }
+      ctx.globalAlpha = fr.life * 0.7;
+      ctx.strokeStyle = "#cfe8ff"; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(px(fr.x), py(fr.y), (1 - fr.life) * 40 + 6, 0, 6.283); ctx.stroke();
+      ctx.globalAlpha = 1;
+    }
+    drawTray();
+  }
+  ctx.restore();
+  // 外框
+  ctx.strokeStyle = "rgba(90,120,190,0.25)";
+  roundRect(ctx, OX - 5, OY - 5, COLS * CELL + 10, ROWS * CELL + 10, 12); ctx.stroke();
+}
+
+// ---------- 主循环（固定步长 1/30 与回放一致） ----------
+var acc = 0, lastT = 0;
+function frame(ts) {
+  var dt = Math.min((ts - lastT) / 1000 || 0, 0.1); lastT = ts;
+  if (ui === "play" && st) {
+    acc += dt;
+    var guard = 0;
+    while (acc >= 1 / 30 && guard++ < 6) {
+      acc -= 1 / 30;
+      LK.step(st, 1 / 30);
+    }
+    consumeEvents();
+    elBeat.textContent = "BEAT " + Math.min(st.beat + 1, st.L.beats) + "/" + st.L.beats;
+    if (st.status !== "play") { endLevel(); acc = 0; }
+  } else acc = 0;
+  render(ts / 1000);
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+openMenu();
+// 调试/测试钩子（不影响游戏逻辑）
+window.__lk = {
+  LK: LK,
+  get state() { return st; },
+  get ui() { return ui; },
+  start: startLevel
+};
+
+</script>
+</body>
+</html>
